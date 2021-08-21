@@ -1,15 +1,18 @@
 import 'dart:io';
 
-import 'package:deluge_client/components/all_acc.dart';
+import 'package:deluge_client/core/all_acc.dart';
 import 'package:deluge_client/components/all_info.dart';
 import 'package:deluge_client/components/download_upload_pane.dart';
 import 'package:deluge_client/components/progress_bar.dart';
 import 'package:deluge_client/database/dbmanager.dart';
 import 'package:expandable/expandable.dart';
+import 'package:filesize/filesize.dart';
 import 'package:flutter/material.dart';
 import 'package:deluge_client/control_center/theme.dart';
 import 'package:deluge_client/api/apis.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
+import 'package:deluge_client/control_center/theme_controller.dart';
+import 'package:deluge_client/api/models/torrent_prop.dart';
 
 class tile extends StatefulWidget {
   final multtorrent hash_m;
@@ -17,7 +20,7 @@ class tile extends StatefulWidget {
   final List<String> selected_torrents;
   final List<multtorrent> multi_selected_torrent;
   final String hash;
-  final Map<String, dynamic> inside_res;
+  final Properties inside_res;
   bool paused;
   final bool seeding;
   final Bucket selx_acc;
@@ -61,11 +64,11 @@ class _tileState extends State<tile> {
   final List<multtorrent> multi_selected_torrent;
   final String hash;
   bool paused;
-  final bool seeding;
+   bool seeding;
   final bool for_multi;
   final Bucket selx_acc;
   final List<Cookie> cookie;
-  final Map<String, dynamic> inside_res;
+  final Properties inside_res;
   final multtorrent hashm;
   bool completed;
   final VoidCallback non_delayed_fetch;
@@ -93,25 +96,27 @@ class _tileState extends State<tile> {
         selx_acc.is_reverse_proxied,
         selx_acc.username,
         selx_acc.password,
-        selx_acc.via_qr);
+        selx_acc.via_qr,
+        context);
     Future.delayed(Duration(seconds: 1), () async {
-      Map<String, dynamic> mid_fetch = await apis.get_torrent_list(
+      Map<String, Properties> result = await apis.get_torrent_list(
           cookie,
           selx_acc.deluge_url,
           selx_acc.is_reverse_proxied,
           selx_acc.username,
           selx_acc.password,
-          selx_acc.via_qr);
+          selx_acc.via_qr,
+          context);
 
-      Map<String, dynamic> result = mid_fetch['result'];
-
-      
       if (this.mounted) {
         setState(() {
-           paused = result[hash]['paused'];
+          paused = result[hash].paused;
         });
-       
       }
+      networkspeed_state.currentState.stop_listening_network_speed();
+      networkspeed_state.currentState.make_pause();
+      progressbar_state.currentState.make_pause();
+      progressbar_state.currentState.stop_listening_progress_bar();
     });
   }
 
@@ -123,27 +128,31 @@ class _tileState extends State<tile> {
         selx_acc.is_reverse_proxied,
         selx_acc.username,
         selx_acc.password,
-        selx_acc.via_qr);
-        Future.delayed(Duration(seconds: 1), () async {
-      Map<String, dynamic> mid_fetch = await apis.get_torrent_list(
+        selx_acc.via_qr,
+        context);
+    Future.delayed(Duration(seconds: 1), () async {
+      Map<String, Properties> result = await apis.get_torrent_list(
           cookie,
           selx_acc.deluge_url,
           selx_acc.is_reverse_proxied,
           selx_acc.username,
           selx_acc.password,
-          selx_acc.via_qr);
+          selx_acc.via_qr,
+          context);
 
-      Map<String, dynamic> result = mid_fetch['result'];
-
-      
       if (this.mounted) {
         setState(() {
-           paused = result[hash]['paused'];
+          paused = result[hash].paused;
         });
-       
       }
+
+      networkspeed_state.currentState.start_listening_network_speed();
+      networkspeed_state.currentState.make_resume();
+      networkspeed_state.currentState.trace_down_up_speed();
+      progressbar_state.currentState.make_resume();
+      progressbar_state.currentState.start_listening_progress_bar();
+      progressbar_state.currentState.trace_download_progress_bar();
     });
-    
   }
 
   //--------------------------
@@ -239,7 +248,8 @@ class _tileState extends State<tile> {
             selx_acc.is_reverse_proxied,
             selx_acc.username,
             selx_acc.password,
-            selx_acc.via_qr);
+            selx_acc.via_qr,
+            context);
 
         non_delayed_fetch();
 
@@ -264,7 +274,8 @@ class _tileState extends State<tile> {
             selx_acc.is_reverse_proxied,
             selx_acc.username,
             selx_acc.password,
-            selx_acc.via_qr);
+            selx_acc.via_qr,
+            context);
 
         non_delayed_fetch();
 
@@ -308,6 +319,9 @@ class _tileState extends State<tile> {
     }
   }
 
+  GlobalKey<network_speedState> networkspeed_state = GlobalKey();
+  GlobalKey<download_progressState> progressbar_state = GlobalKey();
+
   @override
   Widget build(BuildContext context) {
     return Slidable(
@@ -326,14 +340,20 @@ class _tileState extends State<tile> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.start,
                     children: [
-                      Text(
-                        inside_res['name'],
-                        style: TextStyle(
-                            color: Colors.black,
-                            fontSize: 15.0,
-                            fontWeight: FontWeight.w300,
-                            fontFamily: theme.font_family),
-                      ),
+                      Flexible(
+                        fit: FlexFit.tight,
+                        child: Text(
+                          inside_res.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              color: (!theme_controller.is_it_dark()
+                                  ? Colors.black
+                                  : Colors.white),
+                              fontSize: 15.0,
+                              fontWeight: FontWeight.w300,
+                              fontFamily: theme.font_family),
+                        ),
+                      )
                     ],
                   ),
                 ),
@@ -344,10 +364,11 @@ class _tileState extends State<tile> {
                     children: [
                       Text(
                         "Total Size: " +
-                            (inside_res['total_size'] ~/ 1000000).toString() +
-                            " MB",
+                            (filesize(inside_res.totalSize)).toString(),
                         style: TextStyle(
-                            color: Colors.black,
+                            color: (!theme_controller.is_it_dark()
+                                ? Colors.black
+                                : Colors.white),
                             fontSize: theme.minimal_font_size,
                             fontFamily: theme.font_family),
                       ),
@@ -367,9 +388,10 @@ class _tileState extends State<tile> {
                       Container(
                         padding: EdgeInsets.only(left: 15.0),
                         child: network_speed(
+                          key: networkspeed_state,
                           torrent_id: hash,
                           cookie: cookie,
-                          tor_name: inside_res['name'],
+                          tor_name: inside_res.name,
                           url: selx_acc.deluge_url,
                           is_reverse_proxied: selx_acc.is_reverse_proxied,
                           seed_username: selx_acc.username,
@@ -392,10 +414,11 @@ class _tileState extends State<tile> {
                     mainAxisAlignment: MainAxisAlignment.start,
                     children: [
                       download_progress(
+                        key: progressbar_state,
                         torrent_id: hash,
-                        initial_progress: inside_res['progress'],
+                        initial_progress: inside_res.progress,
                         cookie: cookie,
-                        tor_name: inside_res['name'],
+                        tor_name: inside_res.name,
                         url: selx_acc.deluge_url,
                         is_reverse_proxied: selx_acc.is_reverse_proxied,
                         seed_username: selx_acc.username,
@@ -405,7 +428,17 @@ class _tileState extends State<tile> {
                         update_completion_state: (bool val) {
                           update_completion_state(val);
                         },
+                        update_seeding_state: (bool val) {
+                          if (this.mounted) {
+                            setState(() {
+                              seeding = val;
+                            });
+                          }
+                        },
                         completed: completed,
+                        refresh_list: () {
+                          non_delayed_fetch();
+                        },
                       ),
                       RawMaterialButton(
                         onPressed: () {
@@ -416,8 +449,7 @@ class _tileState extends State<tile> {
                           }
                         },
                         elevation: 2.0,
-                        fillColor:
-                        theme.base_color,
+                        fillColor: theme.base_color,
                         child: paused
                             ? Icon(
                                 Icons.play_arrow,

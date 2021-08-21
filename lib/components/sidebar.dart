@@ -1,11 +1,16 @@
 import 'dart:io';
 
 import 'package:deluge_client/components/bottom_sheet/choose_account.dart';
+import 'package:deluge_client/components/bottom_sheet/ssh_config.dart';
 import 'package:deluge_client/database/dbmanager.dart';
+import 'package:deluge_client/screens/about.dart';
 import 'package:deluge_client/screens/auth.dart';
 import 'package:deluge_client/components/accounts.dart';
 import 'package:deluge_client/components/storage_indicator.dart';
+import 'package:deluge_client/settings/client/client_setting.dart';
 import 'package:deluge_client/settings/deluge/deluge_setting.dart';
+import 'package:deluge_client/settings/deluge/type/sftp_streaming_settings.dart';
+import 'package:deluge_client/sftp_streaming/sftp_explorer.dart';
 import 'package:flutter/material.dart';
 import 'package:deluge_client/control_center/theme.dart';
 import 'package:flutter/scheduler.dart';
@@ -13,8 +18,9 @@ import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:deluge_client/components/accounts.dart';
 import 'package:deluge_client/state_ware_house/state_ware_house.dart';
-import 'package:deluge_client/components/all_acc.dart';
+import 'package:deluge_client/core/all_acc.dart';
 import 'package:deluge_client/notification/notification_controller.dart';
+import 'package:deluge_client/control_center/theme_controller.dart';
 
 class sidebar extends StatefulWidget {
   final VoidCallback filter_torrent_all;
@@ -124,7 +130,29 @@ class sidebarState extends State<sidebar> {
   }
 
   // for managing the state of accounts
+  String sftp_host;
+  String sftp_port;
+  String sftp_username;
+  String sftp_password;
+  String sftp_route_dir;
+
   GlobalKey<accountsState> accounts_state = GlobalKey();
+  Future<bool> handle_streaming_action() async {
+    sftp_host = await states.get_sftp_host();
+    sftp_port = await states.get_sftp_port();
+    sftp_username = await states.get_sftp_username();
+    sftp_password = await states.get_sftp_password();
+    sftp_route_dir = await states.get_sftp_route();
+    
+    if (sftp_host.isNotEmpty &&
+        sftp_port.isNotEmpty &&
+        sftp_username.isNotEmpty &&
+        sftp_password.isNotEmpty &&
+        sftp_route_dir.isNotEmpty) {
+      return true;
+    }
+    return false;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -166,6 +194,7 @@ class sidebarState extends State<sidebar> {
                 children: [
                   storage_indicator(
                     cookie: cookie,
+                    context: context,
                   )
                 ],
               )
@@ -187,6 +216,7 @@ class sidebarState extends State<sidebar> {
           children: [
             accounts(
               key: accounts_state,
+              
               // @todo
               dashboard_state: () => dashboard_state(),
               update_account_selection: () => fetch_selectx_account(),
@@ -199,18 +229,21 @@ class sidebarState extends State<sidebar> {
           leading: Icon(selected_account == -1
               ? Icons.radio_button_checked
               : Icons.radio_button_unchecked),
-          title: Text(
-            "All account",
-            style: theme.sidebar_expansion_children_tile,
-          ),
+          title: Text("All account",
+              style: TextStyle(
+                  fontSize: 12.0,
+                  fontFamily: theme.font_family,
+                  color: theme_controller.is_it_dark()
+                      ? Colors.white
+                      : Colors.black)),
           onTap: () {
             if (this.mounted) {
               setState(() {
                 selected_account = -1;
               });
             }
-            Navigator.of(context).pop(); // closing side bar
 
+            Navigator.of(context).pop(); // closing side bar
             update_account_selection(-1);
             dashboard_state();
             accounts_state.currentState.fetch_selected_account();
@@ -222,7 +255,12 @@ class sidebarState extends State<sidebar> {
         ListTile(
           leading: Icon(Icons.add_circle_outline),
           title: Text("Add new account",
-              style: theme.sidebar_expansion_children_tile),
+              style: TextStyle(
+                  fontSize: 12.0,
+                  fontFamily: theme.font_family,
+                  color: theme_controller.is_it_dark()
+                      ? Colors.white
+                      : Colors.black)),
           onTap: () {
             Navigator.of(context).pop(); //for closing sidebar
             Navigator.push(
@@ -247,16 +285,26 @@ class sidebarState extends State<sidebar> {
           ),
           children: [
             ListTile(
-              leading: Icon(
-                Icons.download_sharp,
-                color: all_selected ? Colors.white : Colors.black,
-              ),
+              leading: Icon(Icons.download_sharp,
+                  color: all_selected
+                      ? (!theme_controller.is_it_dark()
+                          ? Colors.white
+                          : Colors.black)
+                      : (!theme_controller.is_it_dark()
+                          ? Colors.black
+                          : Colors.white)),
               tileColor: all_selected ? theme.base_color : Colors.transparent,
               title: Text("All",
                   style: TextStyle(
                       fontSize: theme.children_expension_tile_font_size,
                       fontFamily: theme.font_family,
-                      color: all_selected ? Colors.white : Colors.black)),
+                      color: all_selected
+                          ? (!theme_controller.is_it_dark()
+                              ? Colors.white
+                              : Colors.black)
+                          : (!theme_controller.is_it_dark()
+                              ? Colors.black
+                              : Colors.white))),
               onTap: () {
                 if (this.mounted) {
                   setState(() {
@@ -272,10 +320,14 @@ class sidebarState extends State<sidebar> {
               },
             ),
             ListTile(
-              leading: Icon(
-                Icons.download_done_sharp,
-                color: completed_selected ? Colors.white : Colors.black,
-              ),
+              leading: Icon(Icons.download_done_sharp,
+                  color: completed_selected
+                      ? (!theme_controller.is_it_dark()
+                          ? Colors.white
+                          : Colors.black)
+                      : (!theme_controller.is_it_dark()
+                          ? Colors.black
+                          : Colors.white)),
               tileColor:
                   completed_selected ? theme.base_color : Colors.transparent,
               title: Text(
@@ -283,7 +335,13 @@ class sidebarState extends State<sidebar> {
                 style: TextStyle(
                     fontSize: theme.children_expension_tile_font_size,
                     fontFamily: theme.font_family,
-                    color: completed_selected ? Colors.white : Colors.black),
+                    color: completed_selected
+                        ? (!theme_controller.is_it_dark()
+                            ? Colors.white
+                            : Colors.black)
+                        : (!theme_controller.is_it_dark()
+                            ? Colors.black
+                            : Colors.white)),
               ),
               onTap: () {
                 if (this.mounted) {
@@ -300,16 +358,26 @@ class sidebarState extends State<sidebar> {
               },
             ),
             ListTile(
-              leading: Icon(
-                Icons.error_outline,
-                color: non_comp_selected ? Colors.white : Colors.black,
-              ),
+              leading: Icon(Icons.error_outline,
+                  color: non_comp_selected
+                      ? (!theme_controller.is_it_dark()
+                          ? Colors.white
+                          : Colors.black)
+                      : (!theme_controller.is_it_dark()
+                          ? Colors.black
+                          : Colors.white)),
               title: Text(
                 "Non-Completed",
                 style: TextStyle(
                     fontSize: theme.children_expension_tile_font_size,
                     fontFamily: theme.font_family,
-                    color: non_comp_selected ? Colors.white : Colors.black),
+                    color: non_comp_selected
+                        ? (!theme_controller.is_it_dark()
+                            ? Colors.white
+                            : Colors.black)
+                        : (!theme_controller.is_it_dark()
+                            ? Colors.black
+                            : Colors.white)),
               ),
               tileColor:
                   non_comp_selected ? theme.base_color : Colors.transparent,
@@ -330,10 +398,14 @@ class sidebarState extends State<sidebar> {
               },
             ),
             ListTile(
-              leading: Icon(
-                Icons.pause_circle_outline,
-                color: paused_selected ? Colors.white : Colors.black,
-              ),
+              leading: Icon(Icons.pause_circle_outline,
+                  color: paused_selected
+                      ? (!theme_controller.is_it_dark()
+                          ? Colors.white
+                          : Colors.black)
+                      : (!theme_controller.is_it_dark()
+                          ? Colors.black
+                          : Colors.white)),
               tileColor:
                   paused_selected ? theme.base_color : Colors.transparent,
               title: Text(
@@ -341,7 +413,13 @@ class sidebarState extends State<sidebar> {
                 style: TextStyle(
                     fontSize: theme.children_expension_tile_font_size,
                     fontFamily: theme.font_family,
-                    color: paused_selected ? Colors.white : Colors.black),
+                    color: paused_selected
+                        ? (!theme_controller.is_it_dark()
+                            ? Colors.white
+                            : Colors.black)
+                        : (!theme_controller.is_it_dark()
+                            ? Colors.black
+                            : Colors.white)),
               ),
               onTap: () {
                 if (this.mounted) {
@@ -359,19 +437,27 @@ class sidebarState extends State<sidebar> {
               },
             ),
             ListTile(
-              leading: Icon(
-                Icons.cloud_download_outlined,
-                color: seeding_selected ? Colors.white : Colors.black,
-              ),
+              leading: Icon(Icons.cloud_download_outlined,
+                  color: seeding_selected
+                      ? (!theme_controller.is_it_dark()
+                          ? Colors.white
+                          : Colors.black)
+                      : (!theme_controller.is_it_dark()
+                          ? Colors.black
+                          : Colors.white)),
               tileColor:
                   seeding_selected ? theme.base_color : Colors.transparent,
-              title: Text(
-                "Seeding",
-                style: TextStyle(
-                    fontSize: theme.children_expension_tile_font_size,
-                    fontFamily: theme.font_family,
-                    color: seeding_selected ? Colors.white : Colors.black),
-              ),
+              title: Text("Seeding",
+                  style: TextStyle(
+                      fontSize: theme.children_expension_tile_font_size,
+                      fontFamily: theme.font_family,
+                      color: seeding_selected
+                          ? (!theme_controller.is_it_dark()
+                              ? Colors.white
+                              : Colors.black)
+                          : (!theme_controller.is_it_dark()
+                              ? Colors.black
+                              : Colors.white))),
               onTap: () {
                 if (this.mounted) {
                   setState(() {
@@ -405,14 +491,32 @@ class sidebarState extends State<sidebar> {
               leading: Icon(Icons.app_settings_alt_rounded),
               title: Text(
                 "Client settings",
-                style: theme.sidebar_expansion_children_tile,
+                style: TextStyle(
+                    fontSize: 12.0,
+                    fontFamily: theme.font_family,
+                    color: theme_controller.is_it_dark()
+                        ? Colors.white
+                        : Colors.black),
               ),
+              onTap: () {
+                Navigator.of(context).pop(); //close sidebar
+                showCupertinoModalBottomSheet(
+                    expand: false,
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => clt_st());
+              },
             ),
             ListTile(
               leading: Icon(Icons.settings_outlined),
               title: Text(
                 "Deluge settings",
-                style: theme.sidebar_expansion_children_tile,
+                style: TextStyle(
+                    fontSize: 12.0,
+                    fontFamily: theme.font_family,
+                    color: theme_controller.is_it_dark()
+                        ? Colors.white
+                        : Colors.black),
               ),
               onTap: () {
                 if (selected_account > 0) {
@@ -439,6 +543,97 @@ class sidebarState extends State<sidebar> {
             ),
           ],
         ),
+        selected_account > 0
+            ? ExpansionTile(
+                title: Text("Streaming & Exploration",
+                    style: theme.sidebar_tile_style),
+                leading: Icon(
+                  Icons.settings_system_daydream_outlined,
+                  color: theme.base_color,
+                ),
+                children: [
+                  ListTile(
+                    title: Text(
+                      "Stream and Explore",
+                      style: TextStyle(
+                          fontSize: 12.0,
+                          fontFamily: theme.font_family,
+                          color: theme_controller.is_it_dark()
+                              ? Colors.white
+                              : Colors.black),
+                    ),
+                    leading: Icon(Icons.close_fullscreen_rounded),
+                    onTap: () async {
+                      if (await handle_streaming_action()) {
+                        // user already configured sftp account
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => files(
+                                      direx: "/",
+                                      path: sftp_route_dir,
+                                      host: sftp_host,
+                                      password: sftp_password,
+                                      port: sftp_port,
+                                      username: sftp_username,
+                                      choosen_account: selecx,
+                                    )));
+                      } else {
+                        // we need to prompt that user first configure sftp acc
+                        Navigator.of(context).pop();
+                        showModalBottomSheet(
+                            isScrollControlled: true,
+                            context: context,
+                            backgroundColor: Colors.transparent,
+                            builder: (context) => ssh_config(
+                          
+                                  direx: "/",
+                                  selected_account: selecx,
+                                ));
+                      }
+                      // now we can plug our plugin from here very easily
+                    },
+                  ),
+                  ListTile(
+                    title: Text(
+                      "Sftp settings",
+                      style: TextStyle(
+                          fontSize: 12.0,
+                          fontFamily: theme.font_family,
+                          color: theme_controller.is_it_dark()
+                              ? Colors.white
+                              : Colors.black),
+                    ),
+                    leading: Icon(Icons.settings_applications_sharp),
+                    onTap: () {
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (context) => ssh(selected_account: selecx)));
+                    },
+                  ),
+                ],
+              )
+            : new Container(
+                height: 0.0,
+                width: 0.0,
+              ),
+                // for abount
+              ListTile(
+                    title: Text(
+                      "About",
+                      style: TextStyle(
+                          fontSize: 15.0,
+                          fontFamily: theme.font_family,
+                          color: theme_controller.is_it_dark()
+                              ? Colors.white
+                              : Colors.black),
+                    ),
+                    leading: Icon(Icons.info_outline),
+                    onTap: () {
+                      
+                      Navigator.push(context,
+                          MaterialPageRoute(builder: (context) => about()));
+                    },
+                  ),
       ],
     )));
   }

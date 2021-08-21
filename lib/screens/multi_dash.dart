@@ -1,16 +1,19 @@
 import 'package:deluge_client/components/download_upload_pane.dart';
+import 'package:deluge_client/components/error_on_dash.dart';
+import 'package:deluge_client/components/loader.dart';
 import 'package:deluge_client/components/no_data.dart';
 import 'package:deluge_client/components/progress_bar.dart';
 import 'package:deluge_client/components/tile.dart';
 import 'package:deluge_client/database/dbmanager.dart';
 import 'package:flutter/material.dart';
-import 'package:deluge_client/components/all_acc.dart';
+import 'package:deluge_client/core/all_acc.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:deluge_client/control_center/theme.dart';
 import 'package:deluge_client/api/apis.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:deluge_client/string/controller.dart';
 import 'package:deluge_client/string/sorter.dart';
+import 'package:deluge_client/api/models/torrent_prop.dart';
 
 class multi_account extends StatefulWidget {
   final Function(List<multtorrent>) manage_multi;
@@ -36,14 +39,14 @@ class multi_accountState extends State<multi_account> {
     super.initState();
   }
 
-  Map<String, dynamic> cookie_all_account=Map<String,dynamic>();
-  Future<Map<multtorrent, dynamic>> torrents_all_account;
+  Map<String, dynamic> cookie_all_account = Map<String, dynamic>();
+  Future<Map<multtorrent, Properties>> torrents_all_account;
   void config() async {
-    cookie_all_account = await all_account_core.config_cache();
+    cookie_all_account = await all_account_core.config_cache(context);
     Future.delayed(Duration(seconds: 4), () async {
       setState(() {
         torrents_all_account =
-            all_account_core.config_torrent_list(cookie_all_account);
+            all_account_core.config_torrent_list(cookie_all_account, context);
       });
     });
   }
@@ -80,7 +83,8 @@ class multi_accountState extends State<multi_account> {
           key.need.is_reverse_proxied,
           key.need.username,
           key.need.password,
-          key.need.via_qr);
+          key.need.via_qr,
+          context);
     }
     config();
     if (this.mounted) {
@@ -102,7 +106,8 @@ class multi_accountState extends State<multi_account> {
           key.need.is_reverse_proxied,
           key.need.username,
           key.need.password,
-          key.need.via_qr);
+          key.need.via_qr,
+          context);
     }
     config();
     if (this.mounted) {
@@ -208,7 +213,8 @@ class multi_accountState extends State<multi_account> {
               key.need.is_reverse_proxied,
               key.need.username,
               key.need.password,
-              key.need.via_qr);
+              key.need.via_qr,
+              context);
         }
         config();
         if (this.mounted) {
@@ -239,7 +245,8 @@ class multi_accountState extends State<multi_account> {
               key.need.is_reverse_proxied,
               key.need.username,
               key.need.password,
-              key.need.via_qr);
+              key.need.via_qr,
+              context);
         }
         config();
         if (this.mounted) {
@@ -291,6 +298,7 @@ class multi_accountState extends State<multi_account> {
         paused_torrent = false;
       });
     }
+    config();
   }
 
   void multi_filter_torrent_completed() {
@@ -303,6 +311,7 @@ class multi_accountState extends State<multi_account> {
         paused_torrent = false;
       });
     }
+    config();
   }
 
   void multi_filter_torrent_noncompleted() {
@@ -315,6 +324,7 @@ class multi_accountState extends State<multi_account> {
         paused_torrent = false;
       });
     }
+    config();
   }
 
   void multi_filter_torrent_paused() {
@@ -327,6 +337,7 @@ class multi_accountState extends State<multi_account> {
         paused_torrent = true;
       });
     }
+    config();
   }
 
   void multi_filter_torrent_seeding() {
@@ -339,168 +350,181 @@ class multi_accountState extends State<multi_account> {
         paused_torrent = false;
       });
     }
+    config();
   }
 
-  Map<multtorrent, dynamic> sort(Map<multtorrent, dynamic> map) {
+  Map<multtorrent, Properties> sort(Map<multtorrent, Properties> map) {
     if (sort_helper.non_reverse_order) {
       return map;
-    } else {
+    } else if (sort_helper.reverse_order) {
       return sort_helper.sort_for_multi(map);
+    } else if (sort_helper.by_size_order) {
+      return sort_helper.sort_by_size_for_multi(map);
+    } else if (sort_helper.by_date_time) {
+      return sort_helper.sort_by_date_time_for_multi(map);
     }
   }
   //----------------------------------------------------------------------
-  
-
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      child: FutureBuilder<Map<multtorrent, dynamic>>(
+      child: FutureBuilder<Map<multtorrent,Properties>>(
           future: torrents_all_account,
           builder: (BuildContext context,
-              AsyncSnapshot<Map<multtorrent, dynamic>> snapshot) {
+              AsyncSnapshot<Map<multtorrent, Properties>> snapshot) {
             if (snapshot.connectionState != ConnectionState.done) {
               //------------
-              return Center(child: Image.asset("assets/loader.gif"));
-            } else if (snapshot.data == null) {
-              return no_data();
+              return Center(child: loader());
+            } else if (snapshot.data==null) {
+              return error(
+                retry: () {
+                  config();
+                },
+                account_name: all_account_core.error_account,
+              );
             } else {
               return Expanded(
                   child: RefreshIndicator(
                       onRefresh: () async {
                         config();
                       },
-                      child: ListView.builder(
-                          // where snapshot data means here is torrent=snapshot.data
+                      child: snapshot.data.length > 0
+                          ? ListView.builder(
+                              // where snapshot data means here is torrent=snapshot.data
 
-                          itemCount: snapshot.data.length,
-                          itemBuilder: (context, index) {
-                            // it is the key that is basically idententity of list
-                            //--------for sorted one
-                            Map<multtorrent, dynamic> sorted_map =
-                                sort(snapshot.data);
-                            multtorrent key =
-                                sorted_map.keys.elementAt(index);
-                            Bucket buc = key.need;
-                            String hash = key.hash;
-                            //inside the result array
-                            Map<String, dynamic> inside_res =
-                                snapshot.data[key];
+                              itemCount: snapshot.data.length,
+                              itemBuilder: (context, index) {
+                                // it is the key that is basically idententity of list
+                                //--------for sorted one
+                                Map<multtorrent, Properties> sorted_map =
+                                    sort(snapshot.data);
+                                multtorrent key =
+                                    sorted_map.keys.elementAt(index);
+                                Bucket buc = key.need;
+                                String hash = key.hash;
+                                //inside the result array
+                                Properties inside_res = snapshot.data[key];
 
-                            bool paused = inside_res['paused'];
+                                bool paused = inside_res.paused;
 
-                            bool completed = inside_res['is_finished'];
-                            bool seeding = inside_res['is_seed'];
+                                bool completed = inside_res.isFinished;
+                                bool seeding = inside_res.isSeed;
 
-                            bool query;
-                            if (completed_torrent) {
-                              query = completed;
-                            } else if (all_torrent) {
-                              query = (!completed || completed);
-                            } else if (noncompleted) {
-                              query = !completed;
-                            } else if (torren_seeding) {
-                              // if torrent is not paused and seeding then it list tiles in futurebuilder
-                              // becuase in json seeding will true if torrent is paused once it get completed
-                              query = seeding && !paused;
-                            } else if (paused_torrent) {
-                              query = paused;
-                            }
-                            if (select_all_activity_trigger) {
-                              insert_selected_torrent(key);
-                            }
+                                bool query;
+                                if (completed_torrent) {
+                                  query = completed;
+                                } else if (all_torrent) {
+                                  query = (!completed || completed);
+                                } else if (noncompleted) {
+                                  query = !completed;
+                                } else if (torren_seeding) {
+                                  // if torrent is not paused and seeding then it list tiles in futurebuilder
+                                  // becuase in json seeding will true if torrent is paused once it get completed
+                                  query = seeding && !paused;
+                                } else if (paused_torrent) {
+                                  query = paused;
+                                }
+                                if (select_all_activity_trigger) {
+                                  insert_selected_torrent(key);
+                                }
 
-                            // we will be returning row and col
+                                // we will be returning row and col
 
-                            return query
-                                ? inside_res['name']
-                                        .toString()
-                                        .toLowerCase()
-                                        .contains(controller
-                                            .search_field_controller.text
-                                            .toLowerCase())
-                                    ? InkWell(
-                                        onTap: () {
-                                          if (long_press_activity &&
-                                              selected_torrents.isNotEmpty) {
-                                            if (!selected_torrents
-                                                .contains(key)) {
+                                return query
+                                    ? inside_res.name
+                                            .toString()
+                                            .toLowerCase()
+                                            .contains(controller
+                                                .search_field_controller.text
+                                                .toLowerCase())
+                                        ? InkWell(
+                                            onTap: () {
+                                              if (long_press_activity &&
+                                                  selected_torrents
+                                                      .isNotEmpty) {
+                                                if (!selected_torrents
+                                                    .contains(key)) {
+                                                  if (this.mounted) {
+                                                    setState(() {
+                                                      insert_selected_torrent(
+                                                          key);
+                                                    });
+                                                  }
+                                                } else {
+                                                  if (this.mounted) {
+                                                    setState(() {
+                                                      pop_out_on_click(key);
+                                                    });
+                                                  }
+                                                } //else brace
+
+                                                if (select_all_activity_trigger) {
+                                                  setState(() {
+                                                    select_all_activity_trigger =
+                                                        false;
+                                                    config();
+                                                    pop_out_on_click(key);
+                                                  });
+                                                }
+                                              }
+                                              //--------implement the ontap
+                                              //------------for text editor
+                                              FocusScopeNode currentFocus =
+                                                  FocusScope.of(context);
+
+                                              if (!currentFocus
+                                                  .hasPrimaryFocus) {
+                                                currentFocus.unfocus();
+                                              }
+                                              //------------------------>
+                                            },
+                                            onLongPress: () {
                                               if (this.mounted) {
                                                 setState(() {
-                                                  insert_selected_torrent(key);
+                                                  long_press_activity = true;
                                                 });
                                               }
-                                            } else {
-                                              if (this.mounted) {
-                                                setState(() {
-                                                  pop_out_on_click(key);
-                                                });
+                                              if (!selected_torrents
+                                                  .contains(key)) {
+                                                if (this.mounted) {
+                                                  setState(() {
+                                                    insert_selected_torrent(
+                                                        key);
+                                                  });
+                                                }
                                               }
-                                            } //else brace
-
-                                            if (select_all_activity_trigger) {
-                                              setState(() {
-                                                select_all_activity_trigger =
-                                                    false;
+                                            },
+                                            child:
+                                                //---------------
+                                                tile(
+                                              paused: paused,
+                                              completed: completed,
+                                              cookie: cookie_all_account[
+                                                  buc.deluge_url],
+                                              for_multi: true,
+                                              hash: key.hash,
+                                              inside_res: inside_res,
+                                              multi_selected_torrent:
+                                                  selected_torrents,
+                                              seeding: seeding,
+                                              selx_acc: buc,
+                                              hash_m: key,
+                                              non_delayed_fetch: (){
                                                 config();
-                                                pop_out_on_click(key);
-                                              });
-                                            }
-                                          }
-                                          //--------implement the ontap
-                                          //------------for text editor
-                                          FocusScopeNode currentFocus =
-                                              FocusScope.of(context);
-
-                                          if (!currentFocus.hasPrimaryFocus) {
-                                            currentFocus.unfocus();
-                                          }
-                                          //------------------------>
-                                        },
-                                        onLongPress: () {
-                                          if (this.mounted) {
-                                            setState(() {
-                                              long_press_activity = true;
-                                            });
-                                          }
-                                          if (!selected_torrents
-                                              .contains(key)) {
-                                            if (this.mounted) {
-                                              setState(() {
-                                                insert_selected_torrent(key);
-                                              });
-                                            }
-                                          }
-                                        },
-                                        child:
-                                            //---------------
-                                            tile(
-                                          paused: paused,
-                                          completed: completed,
-                                          cookie: cookie_all_account[
-                                              buc.deluge_url],
-                                          for_multi: true,
-                                          hash: key.hash,
-                                          inside_res: inside_res,
-                                          multi_selected_torrent:
-                                              selected_torrents,
-                                          seeding: seeding,
-                                          selx_acc: buc,
-                                          hash_m: key,
-                                          non_delayed_fetch: () {
-                                            config();
-                                          },
-                                        ),
-                                      )
+                                              },
+                                            ),
+                                          )
+                                        : Container(
+                                            height: 0.0,
+                                            width: 0.0,
+                                          )
                                     : Container(
                                         height: 0.0,
                                         width: 0.0,
-                                      )
-                                : Container(
-                                    height: 0.0,
-                                    width: 0.0,
-                                  );
-                          })));
+                                      );
+                              })
+                          : no_data()));
             }
           }),
     );

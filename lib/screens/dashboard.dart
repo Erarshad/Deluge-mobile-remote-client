@@ -1,14 +1,17 @@
 import 'dart:collection';
 import 'dart:convert';
 import 'package:deluge_client/api/apis.dart';
-import 'package:deluge_client/components/all_acc.dart';
-import 'package:deluge_client/components/all_acc.dart';
+import 'package:deluge_client/components/error_on_dash.dart';
+import 'package:deluge_client/core/all_acc.dart';
+import 'package:deluge_client/core/all_acc.dart';
 import 'package:deluge_client/components/bottom_sheet/choose_account.dart';
 import 'package:deluge_client/components/bottom_sheet/sorter.dart';
 import 'package:deluge_client/components/download_upload_pane.dart';
+import 'package:deluge_client/components/loader.dart';
 import 'package:deluge_client/components/no_data.dart';
 import 'package:deluge_client/components/progress_bar.dart';
 import 'package:deluge_client/components/tile.dart';
+import 'package:deluge_client/control_center/theme_changer.dart';
 import 'package:deluge_client/database/dbmanager.dart';
 import 'package:deluge_client/screens/multi_dash.dart';
 import 'package:flutter/scheduler.dart';
@@ -20,36 +23,22 @@ import 'package:deluge_client/control_center/theme.dart';
 import 'package:deluge_client/components/sidebar.dart';
 import 'dart:io';
 import 'package:deluge_client/string/controller.dart';
-
+import 'package:keyboard_dismisser/keyboard_dismisser.dart';
 import 'package:modal_bottom_sheet/modal_bottom_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:deluge_client/state_ware_house/state_ware_house.dart';
 import 'package:deluge_client/string/sorter.dart';
 import 'package:deluge_client/notification/notification_controller.dart';
+import 'package:deluge_client/control_center/theme_controller.dart';
+import 'package:deluge_client/api/models/torrent_prop.dart';
 
-class MyApp extends StatefulWidget {
+class dashboard extends StatefulWidget {
   @override
-  _MyAppState createState() => _MyAppState();
+  _dashboardState createState() => _dashboardState();
 }
 
-class _MyAppState extends State<MyApp> {
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: theme.thread_title,
-      theme: ThemeData(primarySwatch: theme.material_color),
-      home: view(),
-    );
-  }
-}
-
-class view extends StatefulWidget {
-  @override
-  _viewState createState() => _viewState();
-}
-
-class _viewState extends State<view> {
-  Future<Map<String, dynamic>> torrent;
+class _dashboardState extends State<dashboard> {
+  Future<Map<String, Properties>> torrent;
   List<Cookie> cookie = null;
   //----
   bool all_torrent = true;
@@ -88,6 +77,7 @@ class _viewState extends State<view> {
       if (this.mounted) {
         setState(() {
           all_account_selected = false;
+          head = selx_acc.deluge_url;
         });
       }
     } else {
@@ -111,7 +101,7 @@ class _viewState extends State<view> {
       String seed_pass,
       String qr_auth) async {
     cookie = await apis.authentication_to_deluge(url, password, has_deluge_pass,
-        is_reverse_proxied, seed_username, seed_pass, qr_auth);
+        is_reverse_proxied, seed_username, seed_pass, qr_auth, context);
   }
 
   @override
@@ -129,7 +119,7 @@ class _viewState extends State<view> {
       if (this.mounted) {
         setState(() {
           torrent = apis.get_torrent_list(cookie, url, is_reverse_proxied,
-              seed_username, seed_pass, qr_auth);
+              seed_username, seed_pass, qr_auth, context);
 
           // setting state for ui changes realtime
         });
@@ -172,7 +162,7 @@ class _viewState extends State<view> {
         if (this.mounted) {
           setState(() {
             torrent = apis.get_torrent_list(cookie, url, is_reverse_proxied,
-                seed_username, seed_pass, qr_auth);
+                seed_username, seed_pass, qr_auth, context);
 
             // setting state for ui changes realtime
           });
@@ -202,81 +192,123 @@ class _viewState extends State<view> {
   //----------------------------------------------
   //methods to access in sidebar to filter data
   void filter_torrent_all() {
-    if (!all_account_selected) {
-      if (this.mounted) {
-        setState(() {
-          all_torrent = true;
-          noncompleted = false;
-          completed_torrent = false;
-          torren_seeding = false;
-          paused_torrent = false;
-        });
-      }
-    } else {
+    if (this.mounted) {
+      setState(() {
+        all_torrent = true;
+        noncompleted = false;
+        completed_torrent = false;
+        torren_seeding = false;
+        paused_torrent = false;
+      });
+    }
+    non_delayed_torrent_fetch(
+        selx_acc.deluge_url,
+        selx_acc.deluge_pwrd,
+        cookie,
+        selx_acc.has_deluge_pwrd,
+        selx_acc.is_reverse_proxied,
+        selx_acc.username,
+        selx_acc.password,
+        selx_acc.via_qr); // for single account listen changes
+    if (all_account_selected) {
       multidash.currentState.multi_filter_torrent_all();
     }
   }
 
   void filter_torrent_completed() {
-    if (!all_account_selected) {
-      if (this.mounted) {
-        setState(() {
-          all_torrent = false;
-          noncompleted = false;
-          completed_torrent = true;
-          torren_seeding = false;
-          paused_torrent = false;
-        });
-      }
-    } else {
+    if (this.mounted) {
+      setState(() {
+        all_torrent = false;
+        noncompleted = false;
+        completed_torrent = true;
+        torren_seeding = false;
+        paused_torrent = false;
+      });
+    }
+    non_delayed_torrent_fetch(
+        selx_acc.deluge_url,
+        selx_acc.deluge_pwrd,
+        cookie,
+        selx_acc.has_deluge_pwrd,
+        selx_acc.is_reverse_proxied,
+        selx_acc.username,
+        selx_acc.password,
+        selx_acc.via_qr); // for single account listen changes
+    if (all_account_selected) {
       multidash.currentState.multi_filter_torrent_completed();
     }
   }
 
   void filter_torrent_noncompleted() {
-    if (!all_account_selected) {
-      if (this.mounted) {
-        setState(() {
-          all_torrent = false;
-          noncompleted = true;
-          completed_torrent = false;
-          torren_seeding = false;
-          paused_torrent = false;
-        });
-      }
-    } else {
+    if (this.mounted) {
+      setState(() {
+        all_torrent = false;
+        noncompleted = true;
+        completed_torrent = false;
+        torren_seeding = false;
+        paused_torrent = false;
+      });
+    }
+    non_delayed_torrent_fetch(
+        selx_acc.deluge_url,
+        selx_acc.deluge_pwrd,
+        cookie,
+        selx_acc.has_deluge_pwrd,
+        selx_acc.is_reverse_proxied,
+        selx_acc.username,
+        selx_acc.password,
+        selx_acc.via_qr); // for single account listen changes
+
+    if (all_account_selected) {
       multidash.currentState.multi_filter_torrent_noncompleted();
     }
   }
 
   void filter_torrent_paused() {
-    if (!all_account_selected) {
-      if (this.mounted) {
-        setState(() {
-          all_torrent = false;
-          noncompleted = false;
-          completed_torrent = false;
-          torren_seeding = false;
-          paused_torrent = true;
-        });
-      }
-    } else {
+    if (this.mounted) {
+      setState(() {
+        all_torrent = false;
+        noncompleted = false;
+        completed_torrent = false;
+        torren_seeding = false;
+        paused_torrent = true;
+      });
+    }
+    non_delayed_torrent_fetch(
+        selx_acc.deluge_url,
+        selx_acc.deluge_pwrd,
+        cookie,
+        selx_acc.has_deluge_pwrd,
+        selx_acc.is_reverse_proxied,
+        selx_acc.username,
+        selx_acc.password,
+        selx_acc.via_qr); // for single account listen changes
+
+    if (all_account_selected) {
       multidash.currentState.multi_filter_torrent_paused();
     }
   }
 
   void filter_torrent_seeding() {
-    if (!all_account_selected) {
-      if (this.mounted) {
-        setState(() {
-          all_torrent = false;
-          noncompleted = false;
-          completed_torrent = false;
-          torren_seeding = true;
-          paused_torrent = false;
-        });
-      }
-    } else {
+    if (this.mounted) {
+      setState(() {
+        all_torrent = false;
+        noncompleted = false;
+        completed_torrent = false;
+        torren_seeding = true;
+        paused_torrent = false;
+      });
+    }
+    non_delayed_torrent_fetch(
+        selx_acc.deluge_url,
+        selx_acc.deluge_pwrd,
+        cookie,
+        selx_acc.has_deluge_pwrd,
+        selx_acc.is_reverse_proxied,
+        selx_acc.username,
+        selx_acc.password,
+        selx_acc.via_qr); // for single account listen changes
+    if (all_account_selected) {
       multidash.currentState.multi_filter_torrent_seeding();
     }
   }
@@ -297,7 +329,8 @@ class _viewState extends State<view> {
             selx_acc.is_reverse_proxied,
             selx_acc.username,
             selx_acc.password,
-            selx_acc.via_qr);
+            selx_acc.via_qr,
+            context);
       }
       non_delayed_torrent_fetch(
           selx_acc.deluge_url,
@@ -330,7 +363,8 @@ class _viewState extends State<view> {
             selx_acc.is_reverse_proxied,
             selx_acc.username,
             selx_acc.password,
-            selx_acc.via_qr);
+            selx_acc.via_qr,
+            context);
       }
       non_delayed_torrent_fetch(
           selx_acc.deluge_url,
@@ -449,7 +483,8 @@ class _viewState extends State<view> {
               selx_acc.is_reverse_proxied,
               selx_acc.username,
               selx_acc.password,
-              selx_acc.via_qr);
+              selx_acc.via_qr,
+              context);
         }
         non_delayed_torrent_fetch(
             selx_acc.deluge_url,
@@ -487,7 +522,8 @@ class _viewState extends State<view> {
               selx_acc.is_reverse_proxied,
               selx_acc.username,
               selx_acc.password,
-              selx_acc.via_qr);
+              selx_acc.via_qr,
+              context);
         }
         non_delayed_torrent_fetch(
             selx_acc.deluge_url,
@@ -544,7 +580,7 @@ class _viewState extends State<view> {
 
   //---------
   void rebuild_list() {
-    Future<Map<String, dynamic>> temp = torrent;
+    Future<Map<String, Properties>> temp = torrent;
     if (this.mounted) {
       setState(() {
         torrent = temp;
@@ -552,239 +588,357 @@ class _viewState extends State<view> {
     }
   }
 
-  Map<String, dynamic> sort(Map<String, dynamic> map) {
+  Map<String, Properties> sort(Map<String, Properties> map) {
     if (sort_helper.non_reverse_order) {
       return map;
-    } else {
+    } else if (sort_helper.reverse_order) {
       return sort_helper.sort(map);
+    } else if (sort_helper.by_size_order) {
+      return sort_helper.sort_by_size(map);
+    } else if (sort_helper.by_date_time) {
+      return sort_helper.sort_by_date_time(map);
     }
   }
 
+  String head = "";
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text("hey", style: theme.app_bar_style),
-        backgroundColor: theme.base_color,
-        actions: [
-          IconButton(
-            icon: Icon(Icons.brightness_5),
-            onPressed: () {
-              //-------------
-              String id = "6dfe89";
-              String aStr = id.replaceAll(new RegExp(r'[^0-9]'), '');
-              int idt = int.parse(aStr); // '23'
-              print(idt);
-              notification.notification_on_progress(
-                  "6dfe", idt, "torr", "cosmos_laundromat", "15 %", 15);
-              notification.notification_on_progress(
-                  "6dfe", 2, "torr", "cosmos_laundromat", "15 %", 15);
-            },
-          ),
+    return KeyboardDismisser(
+        gestures: [
+          GestureType.onTap,
+          GestureType.onPanUpdateDownDirection,
         ],
-      ),
-      drawer: sidebar(
-        filter_torrent_all: () {
-          filter_torrent_all();
-        },
-        filter_torrent_completed: () {
-          filter_torrent_completed();
-        },
-        filter_torrent_noncompleted: () {
-          filter_torrent_noncompleted();
-        },
-        filter_torrent_paused: () {
-          filter_torrent_paused();
-        },
-        filter_torrent_seeding: () {
-          filter_torrent_seeding();
-        },
-        dashboard_state: () {
-          dashboard_state();
-          //  main screen will listen changes from sidebar
-        },
-        all_torrent: all_torrent,
-        completed_torrent: completed_torrent,
-        noncompleted: noncompleted,
-        paused_torrent: paused_torrent,
-        torren_seeding: torren_seeding,
-        cookie: cookie,
-        selected_account: selx_acc,
-      ),
-      body: Column(
-        children: [
-          Padding(
-              padding: EdgeInsets.all(5.0),
-              child: Row(
-                children: [
-                  Expanded(
-                      child: TextField(
-                    onChanged: (val) {
-                      setState(() {
-                        controller.search_field_controller.text;
-                      });
-                    },
-                    decoration: new InputDecoration(
-                      border: new OutlineInputBorder(
-                        borderRadius: const BorderRadius.all(
-                          const Radius.circular(10.0),
-                        ),
-                      ),
-                      filled: true,
-                      hintStyle: new TextStyle(color: Colors.grey[800]),
-                      hintText: "Search torrent by name",
-                      prefixIcon: Icon(Icons.search),
-                      fillColor: Colors.white70,
-                    ),
-                    controller: controller.search_field_controller,
-                  )),
-                  Padding(
-                      padding: EdgeInsets.only(left: 10.0),
-                      child: InkWell(
-                        child: Container(
-                          height: 60.0,
-                          width: 80.0,
-                          child: Icon(
-                            Icons.sort_outlined,
-                            color: Colors.white,
-                            size: 40.0,
-                          ),
-                          decoration: BoxDecoration(
-                              borderRadius: new BorderRadius.circular(10.0),
-                              color: theme.base_color),
-                        ),
-                        onTap: () async {
-                          // sort(await torrent);
-                          showCupertinoModalBottomSheet(
-                              expand: false,
-                              context: context,
-                              backgroundColor: Colors.transparent,
-                              builder: (context) => sorter(
-                                    rebuilt_list: () {
-                                      if (!all_account_selected) {
-                                        non_delayed_torrent_fetch(
-                                            selx_acc.deluge_url,
-                                            selx_acc.deluge_pwrd,
-                                            cookie,
-                                            selx_acc.has_deluge_pwrd,
-                                            selx_acc.is_reverse_proxied,
-                                            selx_acc.username,
-                                            selx_acc.password,
-                                            selx_acc.via_qr);
-                                      } else {
-                                        multidash.currentState.config();
-                                      }
-                                    },
-                                  ));
+        child: Scaffold(
+          appBar: AppBar(
+            title: Text(!all_account_selected ? head : "All Accounts",
+                style: theme.app_bar_style),
+            backgroundColor: theme.base_color,
+            actions: [
+              IconButton(
+                icon: theme_controller.is_it_dark()
+                    ? Icon(Icons.brightness_5)
+                    : Icon(Icons.brightness_4),
+                onPressed: () {
+                  ThemeBuilder.of(context).changeTheme();
+                  if (theme_controller.is_it_dark()) {
+                    states.set_theme_mode(2);
+                  } else {
+                    states.set_theme_mode(1);
+                  }
+                },
+              ),
+            ],
+          ),
+          drawer: sidebar(
+            filter_torrent_all: () {
+              filter_torrent_all();
+            },
+            filter_torrent_completed: () {
+              filter_torrent_completed();
+            },
+            filter_torrent_noncompleted: () {
+              filter_torrent_noncompleted();
+            },
+            filter_torrent_paused: () {
+              filter_torrent_paused();
+            },
+            filter_torrent_seeding: () {
+              filter_torrent_seeding();
+            },
+            dashboard_state: () {
+              dashboard_state();
+              //  main screen will listen changes from sidebar
+            },
+            all_torrent: all_torrent,
+            completed_torrent: completed_torrent,
+            noncompleted: noncompleted,
+            paused_torrent: paused_torrent,
+            torren_seeding: torren_seeding,
+            cookie: cookie,
+            selected_account: selx_acc,
+          ),
+          body: Column(
+            children: [
+              Padding(
+                  padding: EdgeInsets.all(5.0),
+                  child: Row(
+                    children: [
+                      Expanded(
+                          child: TextField(
+                        onChanged: (val) {
+                          setState(() {
+                            controller.search_field_controller.text;
+                          });
                         },
+                        style: TextStyle(
+                            fontFamily: theme.font_family, color: Colors.black),
+                        decoration: new InputDecoration(
+                          focusedBorder: OutlineInputBorder(
+                            borderSide:
+                                BorderSide(color: theme.base_color, width: 2.0),
+                            borderRadius: const BorderRadius.all(
+                              const Radius.circular(10.0),
+                            ),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderSide:
+                                BorderSide(color: Colors.grey[500], width: 2.0),
+                            borderRadius: const BorderRadius.all(
+                              const Radius.circular(10.0),
+                            ),
+                          ),
+                          border: new OutlineInputBorder(
+                            borderRadius: const BorderRadius.all(
+                              const Radius.circular(10.0),
+                            ),
+                          ),
+                          filled: true,
+                          hintStyle: new TextStyle(
+                              color: Colors.grey[800],
+                              fontFamily: theme.font_family),
+                          hintText: "Search torrent by name",
+                          prefixIcon: Icon(
+                            Icons.search,
+                            color: theme.base_color,
+                          ),
+                          fillColor: Colors.white70,
+                        ),
+                        controller: controller.search_field_controller,
                       )),
-                ],
-              )),
-          //--
-          !all_account_selected
-              ? FutureBuilder<Map<String, dynamic>>(
-                  future: torrent,
-                  builder: (BuildContext context,
-                      AsyncSnapshot<Map<String, dynamic>> snapshot) {
-                    if (snapshot.connectionState != ConnectionState.done) {
-                      //------------
-                      return Center(child: Image.asset("assets/loader.gif"));
-                    } else if (snapshot.data == null ||
-                        snapshot.data['result'] == null) {
-                      return no_data();
-                    } else {
-                      return Expanded(
-                          child: RefreshIndicator(
-                              onRefresh: () async {
-                                non_delayed_torrent_fetch(
-                                    selx_acc.deluge_url,
-                                    selx_acc.deluge_pwrd,
-                                    cookie,
-                                    selx_acc.has_deluge_pwrd,
-                                    selx_acc.is_reverse_proxied,
-                                    selx_acc.username,
-                                    selx_acc.password,
-                                    selx_acc.via_qr);
-                              },
-                              child: snapshot.data['result'].length > 0
-                                  ? ListView.builder(
-                                      // where snapshot data means here is torrent=snapshot.data
+                      Padding(
+                          padding: EdgeInsets.only(left: 10.0),
+                          child: InkWell(
+                            child: Container(
+                              height: 60.0,
+                              width: 80.0,
+                              child: Icon(
+                                Icons.sort_outlined,
+                                color: Colors.white,
+                                size: 40.0,
+                              ),
+                              decoration: BoxDecoration(
+                                  borderRadius: new BorderRadius.circular(10.0),
+                                  color: theme.base_color),
+                            ),
+                            onTap: () async {
+                              // sort(await torrent);
+                              showCupertinoModalBottomSheet(
+                                  expand: false,
+                                  context: context,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (context) => sorter(
+                                        rebuilt_list: () {
+                                          if (!all_account_selected) {
+                                            non_delayed_torrent_fetch(
+                                                selx_acc.deluge_url,
+                                                selx_acc.deluge_pwrd,
+                                                cookie,
+                                                selx_acc.has_deluge_pwrd,
+                                                selx_acc.is_reverse_proxied,
+                                                selx_acc.username,
+                                                selx_acc.password,
+                                                selx_acc.via_qr);
+                                          } else {
+                                            multidash.currentState.config();
+                                          }
+                                        },
+                                      ));
+                            },
+                          )),
+                    ],
+                  )),
+              //--
+              !all_account_selected
+                  ? FutureBuilder<Map<String, Properties>>(
+                      future: torrent,
+                      builder: (BuildContext context,
+                          AsyncSnapshot<Map<String, Properties>> snapshot) {
+                        if (snapshot.connectionState != ConnectionState.done) {
+                          //------------
+                          return Center(child: loader());
+                        } else if (snapshot.data==null) {
+                          
+                          
 
-                                      itemCount: snapshot.data['result'].length,
-                                      itemBuilder: (context, index) {
-                                        Map<String, dynamic> res_torrent =
-                                            new Map();
+                          return error(
+                            retry: () {
+                              non_delayed_torrent_fetch(
+                                  selx_acc.deluge_url,
+                                  selx_acc.deluge_pwrd,
+                                  cookie,
+                                  selx_acc.has_deluge_pwrd,
+                                  selx_acc.is_reverse_proxied,
+                                  selx_acc.username,
+                                  selx_acc.password,
+                                  selx_acc.via_qr);
+                            },
+                            account_name: selx_acc.deluge_url,
+                          );
+                        } else {
+                          return Expanded(
+                              child: RefreshIndicator(
+                                  onRefresh: () async {
+                                    non_delayed_torrent_fetch(
+                                        selx_acc.deluge_url,
+                                        selx_acc.deluge_pwrd,
+                                        cookie,
+                                        selx_acc.has_deluge_pwrd,
+                                        selx_acc.is_reverse_proxied,
+                                        selx_acc.username,
+                                        selx_acc.password,
+                                        selx_acc.via_qr);
+                                  },
+                                  child: snapshot.data.length > 0
+                                      ? ListView.builder(
+                                          // where snapshot data means here is torrent=snapshot.data
 
-                                        res_torrent =
-                                            sort(snapshot.data['result']);
+                                          itemCount: snapshot.data.length,
+                                          itemBuilder: (context, index) {
+                                            Map<String, Properties>
+                                                res_torrent = new Map();
 
-                                        // it is the key that is basically idententity of list
-                                        String key =
-                                            res_torrent.keys.elementAt(index);
+                                            res_torrent = sort(snapshot.data);
 
-                                        //inside the result array
-                                        Map<String, dynamic> inside_res =
-                                            res_torrent[key];
+                                            // it is the key that is basically idententity of list
+                                            String key = res_torrent.keys
+                                                .elementAt(index);
 
-                                        bool paused = inside_res['paused'];
-                                        bool completed =
-                                            inside_res['is_finished'];
-                                        bool seeding = inside_res['is_seed'];
+                                            //inside the result array
+                                            Properties inside_res =
+                                                res_torrent[key];
 
-                                        bool query;
-                                        if (completed_torrent) {
-                                          query = completed;
-                                        } else if (all_torrent) {
-                                          query = (!completed || completed);
-                                        } else if (noncompleted) {
-                                          query = !completed;
-                                        } else if (torren_seeding) {
-                                          // if torrent is not paused and seeding then it list tiles in futurebuilder
-                                          // becuase in json seeding will true if torrent is paused once it get completed
-                                          query = seeding && !paused;
-                                        } else if (paused_torrent) {
-                                          query = paused;
-                                        }
-                                        if (select_all_activity_trigger) {
-                                          insert_selected_torrent(key);
-                                        }
+                                            bool paused = inside_res.paused;
+                                            bool completed =
+                                                inside_res.isFinished;
+                                            bool seeding = inside_res.isSeed;
 
-                                        // we will be returning row and col
+                                            bool query;
+                                            if (completed_torrent) {
+                                              query = completed;
+                                            } else if (all_torrent) {
+                                              query = (!completed || completed);
+                                            } else if (noncompleted) {
+                                              query = !completed;
+                                            } else if (torren_seeding) {
+                                              // if torrent is not paused and seeding then it list tiles in futurebuilder
+                                              // becuase in json seeding will true if torrent is paused once it get completed
+                                              query = seeding && !paused;
+                                            } else if (paused_torrent) {
+                                              query = paused;
+                                            }
+                                            if (select_all_activity_trigger) {
+                                              insert_selected_torrent(key);
+                                            }
 
-                                        return (query)
-                                            ? inside_res['name']
-                                                    .toString()
-                                                    .toLowerCase()
-                                                    .contains(controller
-                                                        .search_field_controller
-                                                        .text
-                                                        .toLowerCase())
-                                                ? InkWell(
-                                                    onTap: () {
-                                                      if (long_press_activity &&
-                                                          selected_torrents
-                                                              .isNotEmpty) {
-                                                        if (!selected_torrents
-                                                            .contains(key)) {
+                                            // we will be returning row and col
+
+                                            return (query)
+                                                ? inside_res.name
+                                                        .toString()
+                                                        .toLowerCase()
+                                                        .contains(controller
+                                                            .search_field_controller
+                                                            .text
+                                                            .toLowerCase())
+                                                    ? InkWell(
+                                                        onTap: () {
+                                                          if (long_press_activity &&
+                                                              selected_torrents
+                                                                  .isNotEmpty) {
+                                                            if (!selected_torrents
+                                                                .contains(
+                                                                    key)) {
+                                                              if (this
+                                                                  .mounted) {
+                                                                setState(() {
+                                                                  insert_selected_torrent(
+                                                                      key);
+                                                                });
+                                                              }
+                                                            } else {
+                                                              if (this
+                                                                  .mounted) {
+                                                                setState(() {
+                                                                  pop_out_on_click(
+                                                                      key);
+                                                                });
+                                                              }
+                                                            } //else brace
+
+                                                            if (select_all_activity_trigger) {
+                                                              setState(() {
+                                                                select_all_activity_trigger =
+                                                                    false;
+                                                                non_delayed_torrent_fetch(
+                                                                    selx_acc
+                                                                        .deluge_url,
+                                                                    selx_acc
+                                                                        .deluge_pwrd,
+                                                                    cookie,
+                                                                    selx_acc
+                                                                        .has_deluge_pwrd,
+                                                                    selx_acc
+                                                                        .is_reverse_proxied,
+                                                                    selx_acc
+                                                                        .username,
+                                                                    selx_acc
+                                                                        .password,
+                                                                    selx_acc
+                                                                        .via_qr);
+                                                                pop_out_on_click(
+                                                                    key);
+                                                              });
+                                                            }
+                                                          }
+                                                          //--------implement the ontap
+                                                          //------------for text editor
+                                                          FocusScopeNode
+                                                              currentFocus =
+                                                              FocusScope.of(
+                                                                  context);
+
+                                                          if (!currentFocus
+                                                              .hasPrimaryFocus) {
+                                                            currentFocus
+                                                                .unfocus();
+                                                          }
+                                                          //------------------------>
+                                                        },
+                                                        onLongPress: () {
                                                           if (this.mounted) {
                                                             setState(() {
-                                                              insert_selected_torrent(
-                                                                  key);
+                                                              long_press_activity =
+                                                                  true;
                                                             });
                                                           }
-                                                        } else {
-                                                          if (this.mounted) {
-                                                            setState(() {
-                                                              pop_out_on_click(
-                                                                  key);
-                                                            });
+                                                          if (!selected_torrents
+                                                              .contains(key)) {
+                                                            if (this.mounted) {
+                                                              setState(() {
+                                                                insert_selected_torrent(
+                                                                    key);
+                                                              });
+                                                            }
                                                           }
-                                                        } //else brace
+                                                        },
+                                                        child:
+                                                            //-----------
 
-                                                        if (select_all_activity_trigger) {
-                                                          setState(() {
-                                                            select_all_activity_trigger =
-                                                                false;
+                                                            //---------------
+                                                            tile(
+                                                          paused: paused,
+                                                          completed: completed,
+                                                          cookie: cookie,
+                                                          for_multi: false,
+                                                          hash: key,
+                                                          inside_res:
+                                                              inside_res,
+                                                          selected_torrents:
+                                                              selected_torrents,
+                                                          seeding: seeding,
+                                                          selx_acc: selx_acc,
+                                                          non_delayed_fetch:
+                                                              () {
                                                             non_delayed_torrent_fetch(
                                                                 selx_acc
                                                                     .deluge_url,
@@ -801,143 +955,80 @@ class _viewState extends State<view> {
                                                                     .password,
                                                                 selx_acc
                                                                     .via_qr);
-                                                            pop_out_on_click(
-                                                                key);
-                                                          });
-                                                        }
-                                                      }
-                                                      //--------implement the ontap
-                                                      //------------for text editor
-                                                      FocusScopeNode
-                                                          currentFocus =
-                                                          FocusScope.of(
-                                                              context);
+                                                          },
+                                                        ),
+                                                      )
+                                                    : new Container()
+                                                : new Container();
+                                          })
+                                      : no_data()));
+                          //p---
+                        }
+                        //---
 
-                                                      if (!currentFocus
-                                                          .hasPrimaryFocus) {
-                                                        currentFocus.unfocus();
-                                                      }
-                                                      //------------------------>
-                                                    },
-                                                    onLongPress: () {
-                                                      if (this.mounted) {
-                                                        setState(() {
-                                                          long_press_activity =
-                                                              true;
-                                                        });
-                                                      }
-                                                      if (!selected_torrents
-                                                          .contains(key)) {
-                                                        if (this.mounted) {
-                                                          setState(() {
-                                                            insert_selected_torrent(
-                                                                key);
-                                                          });
-                                                        }
-                                                      }
-                                                    },
-                                                    child:
-                                                        //-----------
-
-                                                        //---------------
-                                                        tile(
-                                                      paused: paused,
-                                                      completed: completed,
-                                                      cookie: cookie,
-                                                      for_multi: false,
-                                                      hash: key,
-                                                      inside_res: inside_res,
-                                                      selected_torrents:
-                                                          selected_torrents,
-                                                      seeding: seeding,
-                                                      selx_acc: selx_acc,
-                                                      non_delayed_fetch: () {
-                                                        non_delayed_torrent_fetch(
-                                                            selx_acc.deluge_url,
-                                                            selx_acc
-                                                                .deluge_pwrd,
-                                                            cookie,
-                                                            selx_acc
-                                                                .has_deluge_pwrd,
-                                                            selx_acc
-                                                                .is_reverse_proxied,
-                                                            selx_acc.username,
-                                                            selx_acc.password,
-                                                            selx_acc.via_qr);
-                                                      },
-                                                    ),
-                                                  )
-                                                : new Container()
-                                            : new Container();
-                                      })
-                                  : no_data()));
-                      //p---
-                    }
-                    //---
-
-                    //----
-                  })
-              : multi_account(
-                  manage_multi: (List<multtorrent> val) {
-                    handle_dock_for_multi(val);
-                  },
-                  key: multidash,
-                )
-
-          //---
-        ],
-      ),
-      //-----------------------------------
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: FloatingActionButton(
-        // isExtended: true,
-        child: Icon(Icons.add),
-        backgroundColor: theme.base_color,
-        onPressed: () {
-          if (!all_account_selected) {
-            //-----------------------------------
-            showCupertinoModalBottomSheet(
-                expand: false,
-                context: context,
-                backgroundColor: Colors.transparent,
-                builder: (context) => add_new(
-                      cookie: cookie,
-                      url: selx_acc.deluge_url,
-                      is_reverse_proxied: selx_acc.is_reverse_proxied,
-                      seed_username: selx_acc.username,
-                      seed_pass: selx_acc.password,
-                      qr_auth: selx_acc.via_qr,
-                      refresh: () => non_delayed_torrent_fetch(
-                          selx_acc.deluge_url,
-                          selx_acc.deluge_pwrd,
-                          cookie,
-                          selx_acc.has_deluge_pwrd,
-                          selx_acc.is_reverse_proxied,
-                          selx_acc.username,
-                          selx_acc.password,
-                          selx_acc.via_qr),
-                    ));
-          } else {
-            showCupertinoModalBottomSheet(
-                expand: false,
-                context: context,
-                backgroundColor: Colors.transparent,
-                builder: (context) => multi_account_menu(
-                      cookie_all_account:
-                          multidash.currentState.cookie_all_account,
-                      refresh: () {
-                        multidash.currentState.config();
+                        //----
+                      })
+                  : multi_account(
+                      manage_multi: (List<multtorrent> val) {
+                        handle_dock_for_multi(val);
                       },
-                      widget_id: 1,
-                    ));
-          }
+                      key: multidash,
+                    )
 
-          //----------------------------------
-        },
-      ),
-      //---
-      bottomNavigationBar:
-          selected_torrents.length > 0 || multi_selected_torrents.length > 0
+              //---
+            ],
+          ),
+          //-----------------------------------
+          floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+          floatingActionButton: FloatingActionButton(
+            // isExtended: true,
+            child: Icon(Icons.add),
+            backgroundColor: theme.base_color,
+            onPressed: () {
+              if (!all_account_selected) {
+                //-----------------------------------
+                showCupertinoModalBottomSheet(
+                    expand: false,
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => add_new(
+                          cookie: cookie,
+                          url: selx_acc.deluge_url,
+                          is_reverse_proxied: selx_acc.is_reverse_proxied,
+                          seed_username: selx_acc.username,
+                          seed_pass: selx_acc.password,
+                          qr_auth: selx_acc.via_qr,
+                          refresh: () => non_delayed_torrent_fetch(
+                              selx_acc.deluge_url,
+                              selx_acc.deluge_pwrd,
+                              cookie,
+                              selx_acc.has_deluge_pwrd,
+                              selx_acc.is_reverse_proxied,
+                              selx_acc.username,
+                              selx_acc.password,
+                              selx_acc.via_qr),
+                        ));
+              } else {
+                showCupertinoModalBottomSheet(
+                    expand: false,
+                    context: context,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => multi_account_menu(
+                          cookie_all_account:
+                              multidash.currentState.cookie_all_account,
+                          refresh: () {
+                            multidash.currentState.config();
+                          },
+                          widget_id: 1,
+                        ));
+              }
+
+              //----------------------------------
+            },
+          ),
+          //---
+          bottomNavigationBar: selected_torrents.length > 0 ||
+                  multi_selected_torrents.length > 0
               ? new BottomAppBar(
                   child: new Row(
                     mainAxisAlignment: MainAxisAlignment.start,
@@ -1023,7 +1114,7 @@ class _viewState extends State<view> {
                   height: 0.0,
                   width: 0.0,
                 ),
-      //-----------------------------------
-    );
+          //-----------------------------------
+        ));
   }
 }

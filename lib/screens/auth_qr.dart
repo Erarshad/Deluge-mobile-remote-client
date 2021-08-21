@@ -10,6 +10,7 @@ import 'package:qr_code_scanner/qr_code_scanner.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:deluge_client/api/apis.dart';
 import 'package:deluge_client/state_ware_house/state_ware_house.dart';
+import 'package:deluge_client/core/auth_valid.dart';
 
 class auth_qr extends StatefulWidget {
   final bool tow_attachment;
@@ -38,7 +39,9 @@ class _auth_qrState extends State<auth_qr> {
     );
     dbmanager
         .insertbucket(item)
-        .then((id) => {print('item Added to Db ${id}')});
+        .then((id) => {print('item Added to Db ${id}'),
+      
+        });
   }
 
   void set_auth_state() async {
@@ -59,9 +62,10 @@ class _auth_qrState extends State<auth_qr> {
 
   int count = 0;
   void check_validity(String url, String auth_qr) async {
-    bool validity = await apis.auth_validity("https://" + url, "",
+    auth_valid validity = await apis.auth_validity("https://" + url, "",
         false.toString(), true.toString(), "", "", auth_qr);
-    if (validity) {
+
+    if (validity.valid == 1) {
       controller.stopCamera();
       add_in_db(url, auth_qr);
       set_auth_state();
@@ -71,14 +75,28 @@ class _auth_qrState extends State<auth_qr> {
           : toastMessage("Successfully added");
       !tow_attachment
           ? Navigator.pushReplacement(
-              context, MaterialPageRoute(builder: (context) => MyApp()))
+              context, MaterialPageRoute(builder: (context) => dashboard()))
           : Navigator.popUntil(context, (route) {
-              return count++ == 2;
+              return count++ == 1;
             });
-    } else {
+    } else if (validity.valid == 0) {
       toastMessage("Credentials are wrong");
+    } else if (validity.valid == -1) {
+      toastMessage("Deluge is not responding, May be it is down");
+    } else if (validity.valid == -11) {
+      toastMessage("Deluge is not reachable");
+    } else if (validity.valid == -2) {
+      toastMessage("Seedbox authentification failed.");
+    } else {
+      toastMessage("Something goes wrong");
     }
   }
+
+  // @override
+  // void initState() {
+  //   states.first_time_setup_selection();
+  //   super.initState();
+  // } //it will be fired from the auth screen on have qr button click
 
   Barcode result;
   QRViewController controller;

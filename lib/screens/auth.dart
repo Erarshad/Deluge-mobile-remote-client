@@ -7,9 +7,11 @@ import 'package:flutter/material.dart';
 import 'package:deluge_client/control_center/theme.dart';
 import 'package:flutter/services.dart';
 import 'package:fluttertoast/fluttertoast.dart';
+import 'package:keyboard_dismisser/keyboard_dismisser.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:deluge_client/api/apis.dart';
 import 'package:deluge_client/state_ware_house/state_ware_house.dart';
+import 'package:deluge_client/core/auth_valid.dart';
 
 class auth_view extends StatefulWidget {
   final bool tow_attachment;
@@ -59,18 +61,17 @@ class _auth_viewState extends State<auth_view> {
   }
 
   //-----------------
- 
+
   void set_auth_state() async {
     states.set_auth();
   }
 
+  // @override
+  // void initState() {
+  //   states.first_time_setup_selection();
 
-
-  @override
-  void initState() {
-    states.first_time_setup_selection();
-    super.initState();
-  }
+  //   super.initState();
+  // } //  we will now fire this on button click of get started
 
 //---------
 //-
@@ -86,27 +87,47 @@ class _auth_viewState extends State<auth_view> {
 
   void check_validity(String url, String password, String has_deluge_pass,
       String is_reverse_proxied, String seed_username, seed_pass) async {
-    bool validity = await apis.auth_validity(url, password, has_deluge_pass,
-        is_reverse_proxied, seed_username, seed_pass, "");
-    if (validity) {
-      add_in_db(url, has_deluge_pass, password, is_reverse_proxied,
-          seed_username, seed_pass);
-      set_auth_state();
-      !tow_attachment
-          ? toastMessage("Successfully Authorized")
-          : toastMessage("Successfully added");
-      !tow_attachment
-          ? Navigator.push(
-              context, MaterialPageRoute(builder: (context) => MyApp()))
-          : Navigator.pop(context);
-    } else {
+    auth_valid validity = await apis.auth_validity(url, password,
+        has_deluge_pass, is_reverse_proxied, seed_username, seed_pass, "");
+
+
+    if (validity.valid == 1) {
+     
+        add_in_db(url, has_deluge_pass, password, is_reverse_proxied,
+            seed_username, seed_pass);
+        set_auth_state();
+        !tow_attachment
+            ? toastMessage("Successfully Authorized")
+            : toastMessage("Successfully added");
+        !tow_attachment
+            ? Navigator.pushReplacement(
+                context, MaterialPageRoute(builder: (context) => dashboard()))
+            : Navigator.pop(context);
+      
+    } else if (validity.valid == 0) {
       toastMessage("Credentials are wrong");
+    } else if (validity.valid == -1) {
+      toastMessage("Deluge is not responding, May be it is down");
+    } else if (validity.valid == -11) {
+      toastMessage("Deluge is not reachable");
+    } else if (validity.valid == -2) {
+      toastMessage("Seedbox authentification failed");
+    } else {
+      toastMessage("Something goes wrong");
     }
   }
 
+ 
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return KeyboardDismisser(
+        gestures: [
+          GestureType.onTap,
+          GestureType.onPanUpdateDownDirection,
+        ],
+        child:
+    Scaffold(
         appBar: AppBar(
           title: Text(
             "Authorization",
@@ -164,7 +185,7 @@ class _auth_viewState extends State<auth_view> {
                                     filled: true,
                                     hintStyle:
                                         new TextStyle(color: Colors.grey[800]),
-                                    hintText: "Location of Deluge",
+                                    hintText: "Location of Deluge host",
                                     suffixIcon: InkWell(
                                       child: Icon(Icons.paste),
                                       onTap: () {
@@ -358,15 +379,15 @@ class _auth_viewState extends State<auth_view> {
                           isreverse_proxied = !isreverse_proxied;
                         });
                       }),
-                  Text(
-                    "is reverse proxied?",
-                    style: theme.warning_style2,
-                  ),
+                  Text("is reverse proxied?",
+                      style: TextStyle(
+                          fontFamily: theme.font_family, fontSize: 15.0)),
                   Padding(
                       padding: EdgeInsets.only(left: 35.0),
                       child: RaisedButton(
                         color: theme.base_color,
                         onPressed: () {
+                          states.first_time_setup_selection();
                           Navigator.pushReplacement(
                               context,
                               MaterialPageRoute(
@@ -388,6 +409,7 @@ class _auth_viewState extends State<auth_view> {
                 child: Container(
                   width: double.infinity,
                   child: ElevatedButton(
+                    
                     style: ElevatedButton.styleFrom(
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(5.0),
@@ -395,6 +417,7 @@ class _auth_viewState extends State<auth_view> {
                             BorderSide(color: Color.fromRGBO(241, 94, 90, 1.0)),
                       ),
                       primary: Colors.white,
+                      
                     ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
@@ -408,6 +431,7 @@ class _auth_viewState extends State<auth_view> {
                       ),
                     ),
                     onPressed: () {
+                      states.first_time_setup_selection();
                       if (url.text.length > 0) {
                         check_validity(
                             url.text,
@@ -426,6 +450,6 @@ class _auth_viewState extends State<auth_view> {
               //---
             ],
           ),
-        ));
+        )));
   }
 }

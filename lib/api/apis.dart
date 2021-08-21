@@ -1,18 +1,27 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:deluge_client/api/models/settings.dart';
 import 'package:deluge_client/settings/deluge/core_settings.dart';
+import 'package:flutter/material.dart';
+import 'package:deluge_client/control_center/theme.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_phoenix/flutter_phoenix.dart';
+import 'package:deluge_client/core/auth_valid.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+import 'package:deluge_client/api/models/torrent_prop.dart';
+
 
 class apis {
   static int network_request = 0;
   static Future<List<Cookie>> authentication_to_deluge(
-    String url,
-    String password,
-    String has_deluge_pass,
-    String is_reverse_proxied,
-    String seed_username,
-    String seed_pass,
-    String qr_auth,
-  ) async {
+      String url,
+      String password,
+      String has_deluge_pass,
+      String is_reverse_proxied,
+      String seed_username,
+      String seed_pass,
+      String qr_auth,
+      BuildContext context) async {
     Map<String, dynamic> payload = {
       "id": network_request++,
       "method": "auth.login",
@@ -49,19 +58,23 @@ class apis {
       // print(responseBody);
       // print(jsonDecode(responseBody));
       // final result = Model.fromJson(json.decode(responseBody));
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (error) {
       print(error);
     }
   }
 
   //-------------------------------------------------------------------------
-  static Future<Map<String, dynamic>> get_torrent_list(
+  static bool has_prompt_fired_for_repetative = false;
+  static Future<Map<String, Properties>> get_torrent_list(
       List<Cookie> cookie,
       String url,
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     try {
       Map<String, dynamic> requestPayload = {
         "method": "core.get_torrents_status",
@@ -96,9 +109,20 @@ class apis {
 
       Map<String, dynamic> client_output = json.decode(responseBody);
 
-      return client_output;
+      Map<String, Properties> list_torrent = client_output['result'] != null
+          ? propertiesFromJson(json.encode(client_output['result']))
+          : null;
+
+      return list_torrent;
+    } on SocketException catch (_) {
+      if (has_prompt_fired_for_repetative == false) {
+        // so that it will fire only once cause this api will repeatedly call
+        dialogue_prompt.show_prompt(context);
+        has_prompt_fired_for_repetative = true;
+      }
     } catch (e) {
-      return new Map();
+      Map<String, Properties> list_torrent = null;
+      return list_torrent;
     }
   }
 
@@ -110,7 +134,8 @@ class apis {
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     Map<String, dynamic> requestPayload = {
       "method": "core.resume_torrent",
       "params": [
@@ -146,6 +171,8 @@ class apis {
       final responseBody = await response.transform(utf8.decoder).join();
       // we do not need response body here
 
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (e) {
       print(e);
     }
@@ -159,7 +186,8 @@ class apis {
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     Map<String, dynamic> requestPayload = {
       "method": "core.pause_torrent",
       "params": [
@@ -193,6 +221,8 @@ class apis {
 
       cookie = response.cookies;
       final responseBody = await response.transform(utf8.decoder).join();
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (e) {
       print(e);
     }
@@ -207,7 +237,8 @@ class apis {
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     Map<String, dynamic> requestPayload = {
       "method": "core.remove_torrent",
       "params": ["$key", remove_file],
@@ -239,20 +270,23 @@ class apis {
 
       cookie = response.cookies;
       final responseBody = await response.transform(utf8.decoder).join();
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (e) {
       print(e);
     }
   }
 
   //--
-  static Future<bool> auth_validity(
-      String url,
-      String password,
-      String has_deluge_pass,
-      String is_reverse_proxied,
-      String seed_username,
-      String seed_pass,
-      String qr_auth) async {
+  static Future<auth_valid> auth_validity(
+    String url,
+    String password,
+    String has_deluge_pass,
+    String is_reverse_proxied,
+    String seed_username,
+    String seed_pass,
+    String qr_auth,
+  ) async {
     Map<String, dynamic> payload = {
       "id": network_request++,
       "method": "auth.login",
@@ -282,19 +316,34 @@ class apis {
 
       final response = await request.close();
       // print(response.cookies);
-      List<Cookie> cookie = response.cookies;
-      final responseBody = await response.transform(utf8.decoder).join();
-      print(responseBody);
-      Map<String, dynamic> auth_out = await json.decode(responseBody);
-      bool output = auth_out["result"];
-      return output;
+      // print(response.statusCode);
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        List<Cookie> cookie = response.cookies;
+        final responseBody = await response.transform(utf8.decoder).join();
+        print(responseBody);
+        Map<String, dynamic> auth_out = await json.decode(responseBody);
+        bool output = auth_out["result"];
+        if (output == true) {
+          return auth_valid(valid: 1, cookie: response.cookies);
+        } else if (output == false) {
+          return auth_valid(valid: 0, cookie: response.cookies);
+        }
+      } else if (response.statusCode == 401) {
+        return auth_valid(valid: -2, cookie: null);
+      } else {
+        print("deluge is down");
+
+        return auth_valid(valid: -1, cookie: null);
+      }
 
       // print(responseBody);
       // print(jsonDecode(responseBody));
       // final result = Model.fromJson(json.decode(responseBody));
-    } catch (error) {
-      print(error);
-      return false;
+      //--------------------
+    } on SocketException catch (_) {
+      return auth_valid(valid: -11, cookie: null);
+    } catch (e) {
+      return auth_valid(valid: -11, cookie: null);
     }
   }
   //---------------------------------
@@ -309,7 +358,8 @@ class apis {
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     Map<String, dynamic> requestPayload = {
       "method": "core.add_torrent_file",
       "params": ["", "$base64", ""],
@@ -342,12 +392,30 @@ class apis {
       // cookie = response.cookies;
       final responseBody = await response.transform(utf8.decoder).join();
       print(jsonDecode(responseBody));
+
+      if (jsonDecode(responseBody)
+          .toString()
+          .contains("Torrent already in session")) {
+        toastMessage("this file cannot be added, it is already in session");
+      }
       // after adding file then it should refresh it self;
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (e) {
       print(e);
     }
   }
-  //--------------------------------------------------------------
+
+  //--------------------------------------------------------------// for prompt
+  static void toastMessage(String message) {
+    Fluttertoast.showToast(
+      msg: message,
+      toastLength: Toast.LENGTH_SHORT,
+      gravity: ToastGravity.BOTTOM,
+      fontSize: 16.0,
+      backgroundColor: Colors.black,
+    );
+  }
 
   static void add_magnet(
       String link,
@@ -356,7 +424,8 @@ class apis {
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     Map<String, dynamic> requestPayload = {
       "method": "core.add_torrent_magnet",
       "params": ["$link", {}],
@@ -388,6 +457,14 @@ class apis {
 
       // cookie = response.cookies;
       final responseBody = await response.transform(utf8.decoder).join();
+      print(jsonDecode(responseBody));
+      if (jsonDecode(responseBody)
+          .toString()
+          .contains("Torrent already in session")) {
+        toastMessage("this file cannot be added, it is already in session");
+      }
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (e) {
       print(e);
     }
@@ -400,7 +477,8 @@ class apis {
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     Map<String, dynamic> requestPayload = {
       "method": "core.get_config",
       "params": [],
@@ -434,6 +512,8 @@ class apis {
       final responseBody = await response.transform(utf8.decoder).join();
       Map<String, dynamic> res = json.decode(responseBody);
       return res;
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (e) {
       print(e);
     }
@@ -446,7 +526,8 @@ class apis {
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     Map<String, dynamic> requestPayload = {
       "method": "core.get_free_space",
       "params": [download_path],
@@ -480,6 +561,8 @@ class apis {
       final responseBody = await response.transform(utf8.decoder).join();
       Map<String, dynamic> res = json.decode(responseBody);
       return res['result'];
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (e) {
       print(e);
     }
@@ -491,7 +574,8 @@ class apis {
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     List out_going_port_param =
         core_settings.outgoing_ports.text.toString().split(",");
     List listen_port_param =
@@ -590,19 +674,22 @@ class apis {
       final responseBody = await response.transform(utf8.decoder).join();
       Map<String, dynamic> res = json.decode(responseBody);
       print(res);
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (e) {
       print(e);
     }
   }
 
   //----------------------------------------
-  static Future<Map<String, dynamic>> fetch_settings(
+  static Future<Map<String,dynamic>> fetch_settings(
       List<Cookie> cookie,
       String url,
       String is_reverse_proxied,
       String seed_username,
       String seed_pass,
-      String qr_auth) async {
+      String qr_auth,
+      BuildContext context) async {
     Map<String, dynamic> requestPayload = {
       "method": "core.get_config",
       "params": [],
@@ -635,11 +722,122 @@ class apis {
       // cookie = response.cookies;
       final responseBody = await response.transform(utf8.decoder).join();
       Map<String, dynamic> res = json.decode(responseBody);
-      return res;
+      //  DelugeSettings settings_output = delugeSettingsFromJson(json.encode(res));
+      //Settings settings_output = new Settings(res['result']);
+      return res["result"];
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
     } catch (e) {
       print(e);
     }
   }
-  //----------------------------------------
 
+  //-----------------------------------------------------------------------------
+  static Future<List<String>> version_deluge(
+      List<Cookie> cookie,
+      String url,
+      String is_reverse_proxied,
+      String seed_username,
+      String seed_pass,
+      String qr_auth,
+      BuildContext context) async {
+    Map<String, dynamic> requestPayload = {
+      "method": "daemon.get_version",
+      "params": [],
+      "id": network_request++
+    };
+
+    final httpclient = new HttpClient();
+    try {
+      final request = await httpclient.postUrl(Uri.parse(
+          is_reverse_proxied == 'true' ? "$url/deluge/json" : "$url/json"));
+      request.headers.contentType = new ContentType("application", "json");
+      request.headers.add("Cookie", cookie);
+
+      if (seed_username.length > 0 && seed_pass.length > 0) {
+        print("k");
+        String auth =
+            'Basic ' + base64Encode(utf8.encode('$seed_username:$seed_pass'));
+        request.headers.add('authorization', auth);
+      }
+      if (qr_auth.length > 0) {
+        request.headers.add('X-QR-AUTH', qr_auth);
+      }
+
+      request.add(
+        utf8.encode(
+          jsonEncode(requestPayload),
+        ),
+      );
+
+      final response = await request.close();
+
+      // cookie = response.cookies;
+      final responseBody = await response.transform(utf8.decoder).join();
+      Map<String, dynamic> res = json.decode(responseBody);
+      List<String> versioning = res['result'].toString().split("-");
+
+      return versioning;
+    } on SocketException catch (_) {
+      dialogue_prompt.show_prompt(context);
+    } catch (e) {
+      print(e);
+    }
+  }
+}
+
+class dialogue_prompt {
+  static void show_prompt(BuildContext context) {
+    Widget cancelButton = FlatButton(
+      child: Text(
+        "Exit",
+        style: TextStyle(
+            color: Colors.blue,
+            fontSize: theme.alert_box_font_size,
+            fontWeight: FontWeight.bold,
+            fontFamily: theme.font_family),
+      ),
+      onPressed: () {
+        SystemNavigator.pop();
+      },
+    );
+    Widget continueButton = FlatButton(
+      child: Text(
+        "Re-Check",
+        style: TextStyle(
+            color: Colors.white,
+            fontSize: theme.alert_box_font_size,
+            fontWeight: FontWeight.bold,
+            fontFamily: theme.font_family),
+      ),
+      onPressed: () {
+        Phoenix.rebirth(context);
+      },
+    );
+
+    // set up the AlertDialog
+    AlertDialog alert = AlertDialog(
+      backgroundColor: theme.base_color,
+      title: Text("Alert: No Internet Connection",
+          style: TextStyle(color: Colors.white, fontFamily: theme.font_family)),
+      content: Text(
+        "You are not connected with the active network, We cannot connect with the Server, Please try to troubleshoot or recheck connectivity",
+        style: TextStyle(
+            fontSize: theme.alert_box_font_size,
+            color: Colors.white,
+            fontFamily: theme.font_family),
+      ),
+      actions: [
+        continueButton,
+        cancelButton,
+      ],
+    );
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return alert;
+      },
+    );
+  }
 }
